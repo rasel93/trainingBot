@@ -1,33 +1,12 @@
 import streamlit as st
 import json
 import os
+import urllib.request
+import urllib.parse
+import re
 from datetime import datetime
 
 DATA_FILE = "usuarios_data.json"
-
-# --- BASE DE DATOS DE VÍDEOS (100% COMPATIBLES CON INSERCIÓN WEB) ---
-# Enlaces seleccionados específicamente para que se reproduzcan DENTRO de la app
-VIDEOS = {
-    "Press de pecho con mancuernas en banco": "https://www.youtube.com/watch?v=0G2_XXbvpjw",
-    "Aperturas en máquina Peck Deck": "https://www.youtube.com/watch?v=FjJE1rWnEiw",
-    "Flexiones de pecho en el suelo": "https://www.youtube.com/watch?v=WcPbGhaMAyM",
-    "Jalón al pecho en máquina": "https://www.youtube.com/watch?v=CAwf7n6Luuc",
-    "Remo con mancuernas apoyado en banco": "https://www.youtube.com/watch?v=safTFeA2ZFs",
-    "Remo invertido en casa": "https://www.youtube.com/watch?v=XZVvyLcb16Y",
-    "Sentadilla búlgara con mancuernas": "https://www.youtube.com/watch?v=2C-uNgKwPLE",
-    "Sentadilla libre": "https://www.youtube.com/watch?v=U3HlFcBRjEg",
-    "Extensiones de cuádriceps en máquina": "https://www.youtube.com/watch?v=m0FOpME51QQ",
-    "Zancadas alternas": "https://www.youtube.com/watch?v=QOVaHwm-Q6U",
-    "Press militar con mancuernas sentado": "https://www.youtube.com/watch?v=B-aVuyhqL34",
-    "Elevaciones laterales con mancuernas": "https://www.youtube.com/watch?v=WJm9OskIGgU",
-    "Flexiones en pica": "https://www.youtube.com/watch?v=zVgKWjwH30E",
-    "Curl de bíceps y Tríceps en polea": "https://www.youtube.com/watch?v=mHnQnE-Hl0E",
-    "Curl con mancuernas y Press francés": "https://www.youtube.com/watch?v=sAq_ocpRh_I",
-    "Fondos en silla y flexiones diamante": "https://www.youtube.com/watch?v=0326dy_-CzM",
-    "Peso Muerto Rumano con mancuernas": "https://www.youtube.com/watch?v=_oyxCn2iSjU",
-    "Elevación de gemelos de pie": "https://www.youtube.com/watch?v=YMmgqO8Jo-k",
-    "Plancha Abdominal isométrica": "https://www.youtube.com/watch?v=ASdvN_XEl_c"
-}
 
 def cargar_datos():
     if os.path.exists(DATA_FILE):
@@ -39,19 +18,39 @@ def guardar_datos(datos):
     with open(DATA_FILE, "w") as f:
         json.dump(datos, f)
 
-# --- REPRODUCTOR INTERNO ---
+# --- NUEVO MOTOR DE BÚSQUEDA DINÁMICA DE VÍDEOS ---
+# Usamos @st.cache_data para que la app sea súper rápida y solo busque el vídeo 1 vez
+@st.cache_data
+def obtener_video_youtube(ejercicio):
+    # La app hace una búsqueda oculta para encontrar el tutorial exacto
+    query = urllib.parse.quote_plus(f"como hacer tecnica {ejercicio} gym")
+    url = f"https://www.youtube.com/results?search_query={query}"
+    try:
+        # Nos hacemos pasar por un navegador para que YouTube no nos bloquee
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        html = urllib.request.urlopen(req).read().decode('utf-8')
+        # Buscamos el ID del primer vídeo real que aparezca en los resultados
+        video_ids = re.findall(r'"videoId":"(.{11})"', html)
+        if video_ids:
+            # Devolvemos el enlace del primer vídeo encontrado
+            return f"https://www.youtube.com/watch?v={video_ids[0]}"
+    except Exception as e:
+        return None
+    return None
+
 def mostrar_ejercicio(nombre, series_reps):
-    # Desplegable suave que contiene el vídeo sin sacarte de la app
     with st.expander(f"▶️ {nombre} | ⏱️ {series_reps}"):
-        if nombre in VIDEOS:
-            st.video(VIDEOS[nombre])
+        url_video = obtener_video_youtube(nombre)
+        if url_video:
+            # Se reproduce dentro de tu App sin sacarte a YouTube
+            st.video(url_video)
         else:
-            st.error("Enlace de vídeo en actualización. Consulta a tu entrenador IA.")
+            st.warning("Vídeo cargando. Si no aparece, prueba a refrescar la app.")
 
 # --- LÓGICA DEL CHATBOT FITNESS ---
 def responder_chat(mensaje):
     msg = mensaje.lower()
-    if any(word in msg for word in ["agujetas", "dolor", "cansado", "cansancio"]):
+    if any(word in msg for word in["agujetas", "dolor", "cansado", "cansancio"]):
         return "Las agujetas son microrroturas musculares normales por el esfuerzo. Descansa, mantente hidratado y si el dolor es muy fuerte, camina o haz estiramientos suaves. ¡Es tu cuerpo haciéndose más fuerte! 💪"
     elif any(word in msg for word in ["proteína", "proteina", "batido", "comida"]):
         return "La proteína es la 'pintura y ladrillos' de tus músculos. Intenta consumir entre 1.6g y 2g por kilo de tu peso corporal. Huevos, pechuga de pollo, atún, queso batido o proteína whey son excelentes opciones."
@@ -71,7 +70,6 @@ st.title("💪 Tu Entrenador Personal IA")
 usuario_input = st.text_input("👤 Ingresa tu usuario para acceder:", placeholder="Ejemplo: Cristian MA")
 
 if usuario_input:
-    # Estandariza el nombre de usuario (minúsculas y sin espacios extra)
     usuario = usuario_input.strip().lower()
     nombre_mostrar = usuario_input.strip().title()
     datos = cargar_datos()
@@ -99,7 +97,7 @@ if usuario_input:
         dias_entreno = st.slider("Días de entrenamiento a la semana", 2, 6, 4)
         tiempo = st.selectbox("Duración de la sesión",["30-40 min", "45-60 min", "Más de 1 hora"])
         
-        equipamiento_default = ["Mancuernas", "Banco de musculación", "Estación Multifunción"]
+        equipamiento_default =["Mancuernas", "Banco de musculación", "Estación Multifunción"]
         try: 
             default_val = datos.get(usuario, {}).get("equipamiento", equipamiento_default)
         except: 
@@ -157,7 +155,6 @@ if usuario_input:
             st.markdown(f"**Tu material:** {', '.join(perfil['equipamiento'])}")
             st.divider()
             
-            # Lógica de programación del entrenamiento según la fase
             estilo = fase_actual % 3
             if estilo == 1:
                 enfoque, reps_base, reps_grandes = "Hipertrofia Clásica (Volumen)", "3 series x 10-12 reps", "4 series x 8-12 reps"
@@ -172,7 +169,6 @@ if usuario_input:
             tiene_banco = "Banco de musculación" in perfil["equipamiento"]
             tiene_estacion = "Estación Multifunción" in perfil["equipamiento"]
             
-            # Selección de ejercicios adaptada
             pecho = "Press de pecho con mancuernas en banco" if (tiene_mancuernas and tiene_banco) else "Aperturas en máquina Peck Deck" if tiene_estacion else "Flexiones de pecho en el suelo"
             espalda = "Jalón al pecho en máquina" if tiene_estacion else "Remo con mancuernas apoyado en banco" if (tiene_mancuernas and tiene_banco) else "Remo invertido en casa"
             pierna1 = "Sentadilla búlgara con mancuernas" if tiene_mancuernas else "Sentadilla libre"
@@ -181,7 +177,6 @@ if usuario_input:
             brazo = "Curl de bíceps y Tríceps en polea" if tiene_estacion else "Curl con mancuernas y Press francés" if (tiene_mancuernas and tiene_banco) else "Fondos en silla y flexiones diamante"
             peso_muerto, gemelo, plancha = "Peso Muerto Rumano con mancuernas", "Elevación de gemelos de pie", "Plancha Abdominal isométrica"
 
-            # Renderizado de la Rutina
             if perfil["dias_entreno"] <= 3:
                 for dia in range(1, perfil["dias_entreno"] + 1):
                     st.subheader(f"📅 Día {dia} - Cuerpo Completo")
@@ -226,8 +221,8 @@ if usuario_input:
                 calorias_meta, proteina = calorias_mantenimiento, peso_actual * 1.5
                 
             col1, col2 = st.columns(2)
-            col1.metric("🎯 Calorías Diarias Objetivo", f"{int(calorias_meta)} kcal")
-            col2.metric("🍗 Proteína Diaria Mínima", f"{int(proteina)} g")
+            col1.metric("🎯 Calorías Diarias", f"{int(calorias_meta)} kcal")
+            col2.metric("🍗 Proteína Mínima", f"{int(proteina)} g")
             
             st.divider()
             
@@ -237,9 +232,9 @@ if usuario_input:
             with c1: 
                 st.info("🍳 **Desayunos**")
                 if estilo_comida == 1: 
-                    st.write("• Tostadas con 2 huevos y pavo.\n• Avena con leche y plátano.\n• Café y tortilla francesa.")
+                    st.write("• Tostadas con 2 huevos y pavo.\n• Avena con leche y plátano.\n• Café y tortilla.")
                 else: 
-                    st.write("• Yogur griego con nueces y miel.\n• Revuelto de claras con espinacas.\n• Batido de proteínas con fruta.")
+                    st.write("• Yogur griego con nueces y miel.\n• Revuelto de claras con espinacas.\n• Batido de proteínas.")
             with c2: 
                 st.success("🥗 **Comidas**")
                 if estilo_comida == 1: 
@@ -255,7 +250,6 @@ if usuario_input:
 
         with tab3:
             st.markdown("### 📈 Registro de Peso Corporal")
-            st.write("Guarda tu peso aquí periódicamente en ayunas para ver tu gráfica y recalcular tu dieta de forma automática.")
             col_peso1, col_peso2 = st.columns([1, 2])
             with col_peso1:
                 nuevo_peso = st.number_input("Peso de hoy (kg)", value=float(perfil["historial_peso"][-1] if perfil["historial_peso"] else perfil["peso"]))
@@ -272,29 +266,19 @@ if usuario_input:
 
         with tab4:
             st.markdown("### 💬 Chat con tu Entrenador IA")
-            st.write("Escríbeme tus dudas sobre técnica, alimentación, suplementos o dolores musculares.")
-            
-            # Inicialización del chat
             if "mensajes_chat" not in st.session_state:
                 st.session_state.mensajes_chat = [{"rol": "entrenador", "texto": f"¡Hola {perfil['nombre_real']}! Soy tu entrenador. ¿En qué te ayudo hoy?"}]
 
-            # Dibujar el historial de mensajes
             for msg in st.session_state.mensajes_chat:
                 if msg["rol"] == "usuario": 
                     st.chat_message("user", avatar="👤").write(msg["texto"])
                 else: 
                     st.chat_message("assistant", avatar="🤖").write(msg["texto"])
 
-            # Input del usuario
             prompt = st.chat_input("Escribe tu pregunta aquí...")
             if prompt:
-                # 1. Mostrar pregunta del usuario
                 st.session_state.mensajes_chat.append({"rol": "usuario", "texto": prompt})
                 st.chat_message("user", avatar="👤").write(prompt)
-                
-                # 2. Obtener respuesta inteligente
                 respuesta_bot = responder_chat(prompt)
-                
-                # 3. Mostrar respuesta del bot
                 st.session_state.mensajes_chat.append({"rol": "entrenador", "texto": respuesta_bot})
                 st.chat_message("assistant", avatar="🤖").write(respuesta_bot)
